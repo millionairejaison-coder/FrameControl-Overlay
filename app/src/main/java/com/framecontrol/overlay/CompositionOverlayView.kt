@@ -21,37 +21,22 @@ enum class GridType(val title: String, val category: String) {
 class CompositionOverlayView(context: Context) : View(context) {
 
     var gridType: GridType = GridType.RULE_OF_THIRDS
-        set(value) {
-            field = value
-            invalidate()
-        }
+        set(value) { field = value; invalidate() }
 
     var lineColor: Int = Color.parseColor("#00E5FF")
-        set(value) {
-            field = value
-            updatePaint()
-            invalidate()
-        }
+        set(value) { field = value; updatePaint(); invalidate() }
 
     var lineAlpha: Int = 200
-        set(value) {
-            field = value.coerceIn(30, 255)
-            updatePaint()
-            invalidate()
-        }
+        set(value) { field = value.coerceIn(30, 255); updatePaint(); invalidate() }
 
     var strokeWidthDp: Float = 1.8f
-        set(value) {
-            field = value.coerceIn(0.8f, 6f)
-            updatePaint()
-            invalidate()
-        }
+        set(value) { field = value.coerceIn(0.8f, 6f); updatePaint(); invalidate() }
 
     var flipSpiral: Boolean = false
-        set(value) {
-            field = value
-            invalidate()
-        }
+        set(value) { field = value; invalidate() }
+
+    var isResizeEditMode: Boolean = false
+        set(value) { field = value; invalidate() }
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -59,6 +44,26 @@ class CompositionOverlayView(context: Context) : View(context) {
 
     private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
+    }
+
+    private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+    }
+
+    private val editBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.parseColor("#3300E5FF")
+    }
+
+    private val editHandlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.parseColor("#FFD600")
+    }
+
+    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = 34f
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
 
     init {
@@ -73,6 +78,10 @@ class CompositionOverlayView(context: Context) : View(context) {
 
         dotPaint.color = lineColor
         dotPaint.alpha = (lineAlpha + 35).coerceAtMost(255)
+
+        borderPaint.color = lineColor
+        borderPaint.alpha = (lineAlpha * 0.7f).toInt().coerceAtLeast(80)
+        borderPaint.strokeWidth = (1.2f * density)
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -80,6 +89,9 @@ class CompositionOverlayView(context: Context) : View(context) {
         val w = width.toFloat()
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
+
+        // Outer subtle frame boundary so the user sees the exact camera viewfinder bounds
+        canvas.drawRect(1f, 1f, w - 1f, h - 1f, borderPaint)
 
         when (gridType) {
             GridType.RULE_OF_THIRDS -> drawGrid(canvas, w, h, 1f / 3f, 2f / 3f)
@@ -93,6 +105,32 @@ class CompositionOverlayView(context: Context) : View(context) {
             GridType.FRAME_WITHIN_FRAME -> drawFrameWithinFrame(canvas, w, h)
             GridType.DUTCH_ANGLE -> drawDutchAngle(canvas, w, h)
         }
+
+        if (isResizeEditMode) {
+            drawResizeHandles(canvas, w, h)
+        }
+    }
+
+    private fun drawResizeHandles(canvas: Canvas, w: Float, h: Float) {
+        val density = resources.displayMetrics.density
+        canvas.drawRect(0f, 0f, w, h, editBgPaint)
+
+        val handleRadius = 14f * density
+        // 4 corners
+        canvas.drawCircle(handleRadius, handleRadius, handleRadius, editHandlePaint)
+        canvas.drawCircle(w - handleRadius, handleRadius, handleRadius, editHandlePaint)
+        canvas.drawCircle(handleRadius, h - handleRadius, handleRadius, editHandlePaint)
+        canvas.drawCircle(w - handleRadius, h - handleRadius, handleRadius, editHandlePaint)
+
+        // Center move badge
+        val cx = w / 2f
+        val cy = h / 2f
+        canvas.drawCircle(cx, cy, 22f * density, editHandlePaint)
+
+        val info = "DRAG CENTER TO MOVE • DRAG CORNERS TO RESIZE (${width}x${height}px)"
+        textPaint.textSize = 11f * density
+        val tw = textPaint.measureText(info)
+        canvas.drawText(info, (w - tw) / 2f, (cy - 30f * density).coerceAtLeast(24f * density), textPaint)
     }
 
     private fun drawGrid(canvas: Canvas, w: Float, h: Float, r1: Float, r2: Float) {
@@ -139,7 +177,7 @@ class CompositionOverlayView(context: Context) : View(context) {
                 1 -> {
                     val splitY = top + rh * phi
                     canvas.drawLine(left, splitY, right, splitY, paint)
-                    path.addArc(RectF( right - 2 * ( right - left), top, right, top + 2 * (splitY - top)), 270f, 90f)
+                    path.addArc(RectF(right - 2 * (right - left), top, right, top + 2 * (splitY - top)), 270f, 90f)
                     top = splitY
                 }
                 2 -> {
@@ -161,10 +199,7 @@ class CompositionOverlayView(context: Context) : View(context) {
     }
 
     private fun drawGoldenTriangle(canvas: Canvas, w: Float, h: Float) {
-        // Main diagonal from top-left to bottom-right
         canvas.drawLine(0f, 0f, w, h, paint)
-
-        // Perpendicular intersections from bottom-left and top-right onto the main diagonal
         val d2 = w * w + h * h
         val x1 = (w * h * h) / d2
         val y1 = (w * w * h) / d2
@@ -191,7 +226,7 @@ class CompositionOverlayView(context: Context) : View(context) {
 
     private fun drawConvergingLines(canvas: Canvas, w: Float, h: Float) {
         val vx = w / 2f
-        val vy = h * 0.42f // Horizon line slightly above center
+        val vy = h * 0.42f
         canvas.drawLine(0f, vy, w, vy, paint)
         canvas.drawLine(0f, h, vx, vy, paint)
         canvas.drawLine(w, h, vx, vy, paint)
@@ -232,7 +267,6 @@ class CompositionOverlayView(context: Context) : View(context) {
         val m2y = h * 0.22f
         canvas.drawRect(m2x, m2y, w - m2x, h - m2y, paint)
 
-        // Corner brackets
         canvas.drawLine(0f, 0f, m1x, m1y, paint)
         canvas.drawLine(w, 0f, w - m1x, m1y, paint)
         canvas.drawLine(0f, h, m1x, h - m1y, paint)
